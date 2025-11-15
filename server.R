@@ -1,4 +1,4 @@
-#' *------------------------------------------------------*
+#*------------------------------------------------------*
 #' Author: Julien Chevreau
 #' Mail: julien.chevreau(at)univ-rouen.fr
 #' Date: 08/10/25
@@ -27,16 +27,17 @@ server <- function(input, output) {
     read.csv(user_file$datapath, header = T, sep=",")
     })
   
-  top_log_value = reactive({
+  ## Shortcuts to maxima and minima
+  top_log_value = reactive({ # Max Log2 Fold change value
     ceiling(max(abs(user_data()$log2FC)))
   })
   
-  max_pvalue = reactive({
-    ceiling(max(-10*log(user_data()$p_value)))
+  max_padj = reactive({ # Max Negative log Padjusted value
+    ceiling(max(-10*log(user_data()$padj)))
   })
   
-  min_pvalue = reactive({
-    floor(min(-10*log(user_data()$p_value)))
+  min_padj = reactive({ # Min Negative log Padjusted value
+    floor(min(-10*log(user_data()$padj)))
   })
   
   # DataTable ####
@@ -45,57 +46,117 @@ server <- function(input, output) {
   ## Download table data 
   output$tableData = downloadHandler(filename = "iris.csv", content = iris)
   
-  ## Personnalized sliders
+  ## Personnalized sliders ####
   ## Use dataframe values to scale sliders
-  output$slider_LFC = renderUI({ 
+  output$slider_log2FC = renderUI({ # Log2FC slider
     sliderInput(
-      inputId = "slider_Log2FC",
-      label = "Log2FC threshold",
+      inputId = "slider_log2FC",
+      label = "log2FC threshold",
       min = 0,
-      max = top_log_value(),
-      value = top_log_value()
+      max = top_log_value(), # Dynamic max value of slider
+      value = top_log_value()/2,
+      step = 0.1
     )
   })
   
-  output$slider_Pval = renderUI({
+  output$slider_padj = renderUI({ # Adjusted Pvalue slider
     sliderInput(
-      inputId = "slider_Pvalue",
+      inputId = "slider_padj",
       label = "P-value threshold",
       min = 0,
-      max = ceiling(max(user_data()$p_value)),
-      value = ifelse(max_pvalue()>0.05, 0.05, max_pvalue()/2)
+      max = max_padj(), # Dynamic max value of slider
+      value = max_padj()/2,
+      step = 1
     )
   })
   
   ## Volcano plot ####
   output$volcanoPlot <- renderPlotly({
-    req(user_data())
-    plot_ly(
-      data = user_data(),
-      x = ~log2FC,  # remplacer par vos colonnes
-      y = -10*log(user_data()$p_value),
-      type = "scatter",
-      mode = "markers",
-      text = ~paste("<b>Gene:</b>", Gene, 
-                    '<br>Log2FC:', round(user_data()$log2FC, digits = 2),
-                    '<br>P-value:', round(user_data()$pvalue, digits = 2))
-    ) %>%
+    req(user_data()) # Require data to proceed
+    
+    ### Prepare dataframe ####
+    local_dataframe = user_data() # Load as df
+    local_dataframe$padj <- as.numeric(as.character(local_dataframe$padj)) # Force numeric interpretation
+    local_dataframe$log2FC <- as.numeric(as.character(local_dataframe$log2FC)) # Force numeric interpretation
+    local_dataframe$negLogPadj = -10*log(local_dataframe$padj) # Precompute negative log of padj
+    
+    ### Define expression groups ####
+    local_dataframe$groups = ifelse( # Over expressed genes
+        local_dataframe$negLogPadj>input$slider_padj & local_dataframe$log2FC>input$slider_log2FC, "Sur-exprimé",
+      ifelse ( # Under expressed genes
+        local_dataframe$negLogPadj>input$slider_padj & local_dataframe$log2FC< -input$slider_log2FC, "Sous-exprimé",
+        "Non significatif") # Genes under thresholds
+      )
+    # Assign colors to groups
+    group_colors <- c(
+      "Sur-exprimé" = "red",
+      "Sous-exprimé" = "black",
+      "Non significatif" = "gray"
+    )
+    
+    ### Split plot traces by groups ####
+    plot_ly() %>% add_trace( # Over expressed genes
+      data = local_dataframe[local_dataframe$group == "Sur-exprimé",], # Rows chosen
+      x = ~log2FC, y = ~negLogPadj, # Columns chosen
+      type = "scatter", mode = "markers", # Type of plot
+      marker = list(color = group_colors["Sur-exprimé"]), # Color of points
+      name = "Sur-exprimé", # Name of variable in legend
+      text = ~paste0( # Text to show on hover
+        "<b>Gene:</b> ", GeneName, "<br>",
+        "log2FC: ", round(log2FC, 2), "<br>",
+        "-10log(Padj): ", round(-10*log(padj), 2), "<br>"
+      ),
+      hoverinfo = "text"
+    ) %>% add_trace( #Under expressed genes
+        data = local_dataframe[local_dataframe$group == "Sous-exprimé",],
+        x = ~log2FC, y = ~negLogPadj,
+        type = "scatter", mode = "markers",
+        marker = list(color = group_colors["Sous-exprimé"]),
+        name = "Sous-exprimé",
+        text = ~paste0(
+          "<b>Gene:</b> ", GeneName, "<br>",
+          "log2FC: ", round(log2FC, 2), "<br>",
+          "-10log(Padj): ", round(-10*log(padj), 2), "<br>"
+        ),
+        hoverinfo = "text"
+    ) %>% add_trace( # Genes under thresholds
+        data = local_dataframe[local_dataframe$group == "Non significatif",],
+        x = ~log2FC, y = ~negLogPadj,
+        type = "scatter", mode = "markers",
+        marker = list(color = group_colors["Non significatif"]),
+        name = "Non significatif",
+        text = ~paste0(
+          "<b>Gene:</b> ", GeneName, "<br>",
+          "log2FC: ", round(log2FC, 2), "<br>",
+          "-10log(Padj): ", round(-10*log(padj), 2), "<br>",
+          "<i>Ne dépasse pas les seuils</i>"),
+        hoverinfo = "text"
+      ) %>%
+      ### Change layout and add threshold lines ####
       layout(
         title = "Dynamic volcano plot",
+        xaxis = list(title = "Log2 Fold Change"),
+        yaxis = list(title = "-10.Log(Padj)"),
         shapes = list(
-          # P values vertical lines
-          list(
+          # Log2FC Vertical lines
+          list( # Rightmost line
             type = "line",
-            x0 = input$slider_Log2FC, x1 = input$slider_Log2FC,
-            y0 = min_pvalue(), y1=max_pvalue(),
-            line = list(color = "black", dash = "dash")
+            x0 = input$slider_log2FC, x1 = input$slider_log2FC,
+            y0 = min_padj(), y1=max_padj(),
+            line = list(color = "firebrick", dash = "dash")
           ),
-          # Ligne horizontale du seuil Y
+          list( #Leftmost line
+            type = "line",
+            x0 = -input$slider_log2FC, x1 = -input$slider_log2FC,
+            y0 = min_padj(), y1=max_padj(),
+            line = list(color = "firebrick", dash = "dash")
+          ),
+          # Padj horizontal line
           list(
             type = "line",
-            x0 = floor(min(user_data()$log2FC)), x1 = top_log_value(),
-            y0 = input$slider_Pvalue, y1 = input$slider_Pvalue,
-            line = list(color = "black", dash = "dash")
+              x0 = floor(min(local_dataframe$log2FC)), x1 = top_log_value(),
+            y0 = input$slider_padj, y1 = input$slider_padj,
+            line = list(color = "indianred", dash = "dash")
           )
         )
       )

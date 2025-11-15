@@ -102,7 +102,8 @@ dashboardPage(
       tabItem(tabName = "home",
               h1("Bienvenue au manoir !"),
               fluidRow( # Zone de plot et sélection
-                box(title = "Histogram", 
+                box(title = "Histogram",
+                    width = 7,
                     status = "maroon", 
                     solidHeader = T,
                     background = NULL,
@@ -110,8 +111,9 @@ dashboardPage(
                   ),
                 box(
                   title="Seuils",
-                  uiOutput("slider_LFC"),
-                  uiOutput("slider_Pval"),
+                  width = 5,
+                  uiOutput("slider_log2FC"),
+                  uiOutput("slider_padj"),
                   downloadButton('tableData', 'Download Data')
                 )
               ),
