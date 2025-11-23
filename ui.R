@@ -73,7 +73,7 @@ dashboardPage(
     sidebarMenu(
       menuItem("Home", tabName = "home", icon = icon("home")), # Homepage
       fileInput( # Button to upload input data
-        inputId = "user_File", 
+        inputId = "user_file", 
         label="Télécharger un fichier",
         buttonLabel = "Parcourir...",
         placeholder = "Aucun fichier sélectionné",
@@ -119,6 +119,10 @@ dashboardPage(
               ),
               fluidRow(
                 box(DTOutput('user_table'), width = 12, title ="Tableau",
+                    status = "maroon", 
+                    solidHeader = T)),
+              fluidRow(
+                box(DTOutput('user_selected_table'), width = 12, title ="Tableau",
                     status = "maroon", 
                     solidHeader = T))
       ),
