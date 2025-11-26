@@ -14,10 +14,12 @@ like `libssl-dev` and `libcurl4-openssl-dev` from a terminal.
 - added tables for Over/under-expressed genes and selected genes
 - added file verification
 - added color reactive plot
-- 
+- added about section
+- English compliant
 
 # What I did not achieve/have time for  
 - Logo  
 - Docker or Apptainer containers  
 - Proper reset of plot selected points
 - Plot download handle
+- Fancy look

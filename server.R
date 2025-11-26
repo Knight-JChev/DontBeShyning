@@ -1,13 +1,14 @@
-#*------------------------------------------------------*
+#' *------------------------------------------------------*
 #' Author: Julien Chevreau
 #' Mail: julien.chevreau(at)univ-rouen.fr
 #' Date: 08/10/25
 #' Affiliation: University of Rouen Normandie
 #' Code: Server part of my differential expression analysis project
+#' 
 #' NB: Listen to All Good Things, STARSET and Alpine Universe
 #' *------------------------------------------------------*
-#' TODO : Patch la vérification de fichier
-#' Patch le réinitialiser
+#' TODO : Patch file type check
+#' Patch plot points on reset
 
 srcfile("global.R") # source libraries
 
@@ -17,24 +18,33 @@ server = function(input, output, session) {
   user_data = reactiveVal(NULL) # Initialise reactive value variable to sotre uploaded data
   required_cols = c("GeneName", "ID", "baseMean", "log2FC", "pval", "padj") # Mandatory cols
   # What happens when data is loaded
-  observeEvent(input$user_file, {
-    req(input$user_file) # Require upload
-    
-    # Safely try to read file
-    df = tryCatch(
-      read.csv(input$user_file$datapath, header = TRUE),
-      error = function(e) NULL
-    )
-    
-    # Send popup if not readable
-    if (is.null(df)) { 
-      showModal(modalDialog( # Popup
-        title = "File type error",
-        "Can't read file. Check it is CSV-formatted.",
-        easyClose = TRUE # Click anywhere to close
-      ))
-      return(NULL)
-    }
+      observeEvent(input$user_file, {
+        req(input$user_file) # Require upload
+        
+        if (tools::file_ext(input$user_file$name) != "csv") {
+          showModal(modalDialog(
+            title = "File type error",
+            "The file is not a CSV. Please upload a CSV file.",
+            easyClose = TRUE
+          ))
+          return(NULL)
+        }
+        
+        # Safely try to read file
+        df = tryCatch(
+          read.csv(input$user_file$datapath, header = TRUE),
+          error = function(e) NULL
+        )
+        
+        # Send popup if not readable
+        if (is.null(df)) { 
+          showModal(modalDialog( # Popup
+            title = "File type error",
+            "Can't read file. Check it is CSV-formatted.",
+            easyClose = TRUE # Click anywhere to close
+          ))
+          return(NULL)
+        }
     
     # Retrieve missing cols
     missing_cols = setdiff(required_cols, colnames(df))
@@ -179,13 +189,13 @@ server = function(input, output, session) {
         list( # Rightmost line
           type = "line",
           x0 = input$slider_log2FC, x1 = input$slider_log2FC,
-          y0 = min_padj(), y1=max_padj(),
+          y0 = 0, y1=max_padj(),
           line = list(color = "firebrick", dash = "dash")
         ),
         list( #Leftmost line
           type = "line",
           x0 = -input$slider_log2FC, x1 = -input$slider_log2FC,
-          y0 = min_padj(), y1=max_padj(),
+          y0 = 0, y1=max_padj(),
           line = list(color = "firebrick", dash = "dash")
         ),
         # Padj horizontal line
