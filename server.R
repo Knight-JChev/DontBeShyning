@@ -6,22 +6,22 @@
 #' Code: Server part of my differential expression analysis project
 #' NB: Listen to All Good Things, STARSET and Alpine Universe
 #' *------------------------------------------------------*
-#' TODO : edit the dowload handler;
-#' 
+#' TODO : Patch la vérification de fichier
+#' Patch le réinitialiser
 
 srcfile("global.R") # source libraries
 
-server <- function(input, output) {
+server = function(input, output, session) {
   
   # Check and load user data ####
-  user_data <- reactiveVal(NULL) # Initialise reactive value variable to sotre uploaded data
-  required_cols <- c("GeneName", "ID", "baseMean", "log2FC", "pval", "padj") # Mandatory cols
+  user_data = reactiveVal(NULL) # Initialise reactive value variable to sotre uploaded data
+  required_cols = c("GeneName", "ID", "baseMean", "log2FC", "pval", "padj") # Mandatory cols
   # What happens when data is loaded
   observeEvent(input$user_file, {
     req(input$user_file) # Require upload
     
     # Safely try to read file
-    df <- tryCatch(
+    df = tryCatch(
       read.csv(input$user_file$datapath, header = TRUE),
       error = function(e) NULL
     )
@@ -29,22 +29,22 @@ server <- function(input, output) {
     # Send popup if not readable
     if (is.null(df)) { 
       showModal(modalDialog( # Popup
-        title = "Erreur de fichier",
-        "Impossible de lire le fichier. Vérifiez qu'il s'agit bien d'un CSV.",
+        title = "File type error",
+        "Can't read file. Check it is CSV-formatted.",
         easyClose = TRUE # Click anywhere to close
       ))
       return(NULL)
     }
     
     # Retrieve missing cols
-    missing_cols <- setdiff(required_cols, colnames(df))
+    missing_cols = setdiff(required_cols, colnames(df))
     
     # Stop loading if any cols is missing
     if (length(missing_cols) > 0) {
       showModal(modalDialog( # Popup
-        title = "Colonnes manquantes",
+        title = "Missing cols",
         paste(
-          "Le fichier ne contient pas les colonnes suivantes :",
+          "The file does not have the following cols : \n",
           paste(missing_cols, collapse = ", ")
         ),
         easyClose = TRUE
@@ -58,7 +58,7 @@ server <- function(input, output) {
     
   }) # End of observeEvent
   
-  ## Shortcuts to maxima and minima
+  ## Shortcuts to maxima and minima ####
   top_log_value = reactive({ # Max Log2 Fold change value
     req(user_data())
     ceiling(max(abs(user_data()$log2FC)))
@@ -71,12 +71,6 @@ server <- function(input, output) {
     req(user_data())
     floor(min(-10*log(user_data()$padj)))
   })
-  
-  # DataTable ####
-  output$user_table = renderDT(datatable(user_data(),filter = "top", selection = "multiple"))
-  
-  ## Download table data 
-  output$tableData = downloadHandler(filename = "iris.csv", content = iris)
   
   ## Personnalized sliders ####
   ## Use dataframe values to scale sliders
@@ -95,10 +89,10 @@ server <- function(input, output) {
   
   output$slider_padj = renderUI({ # Adjusted Pvalue slider
     req(user_data())
-      
+    
     sliderInput(
       inputId = "slider_padj",
-      label = "P-value threshold",
+      label = "Adjusted P-value threshold",
       min = 0,
       max = max_padj(), # Dynamic max value of slider
       value = max_padj()/2,
@@ -106,37 +100,44 @@ server <- function(input, output) {
     )
   })
   
-  ## Volcano plot ####
-  output$volcanoPlot <- renderPlotly({
+  user_formatted = reactive({
     req(user_data()) # Require data to proceed
     
     ### Prepare dataframe ####
     local_dataframe = user_data() # Load as df
-    local_dataframe$padj <- as.numeric(as.character(local_dataframe$padj)) # Force numeric interpretation
-    local_dataframe$log2FC <- as.numeric(as.character(local_dataframe$log2FC)) # Force numeric interpretation
+    local_dataframe$padj = as.numeric(as.character(local_dataframe$padj)) # Force numeric interpretation
+    local_dataframe$log2FC = as.numeric(as.character(local_dataframe$log2FC)) # Force numeric interpretation
     local_dataframe$negLogPadj = -10*log(local_dataframe$padj) # Precompute negative log of padj
     
     ### Define expression groups ####
     local_dataframe$groups = ifelse( # Over expressed genes
-      local_dataframe$negLogPadj>input$slider_padj & local_dataframe$log2FC>input$slider_log2FC, "Sur-exprimé",
+      local_dataframe$negLogPadj>input$slider_padj & local_dataframe$log2FC>input$slider_log2FC, "Over-expressed",
       ifelse ( # Under expressed genes
-        local_dataframe$negLogPadj>input$slider_padj & local_dataframe$log2FC< -input$slider_log2FC, "Sous-exprimé",
-        "Non significatif") # Genes under thresholds
+        local_dataframe$negLogPadj>input$slider_padj & local_dataframe$log2FC< -input$slider_log2FC, "Under-expressed",
+        "Under thresholds") # Genes under thresholds
     )
+    local_dataframe
+  })
+  
+  ## Volcano plot ####
+  volcanoPlot = reactive({
+    req(user_formatted())
+    local_dataframe = user_formatted()
+    
     # Assign colors to groups
-    group_colors <- c(
-      "Sur-exprimé" = "red",
-      "Sous-exprimé" = "black",
-      "Non significatif" = "gray"
+    group_colors = c(
+      "Over-expressed" = "red",
+      "Under-expressed" = "black",
+      "Under thresholds" = "gray"
     )
     
     ### Split plot traces by groups ####
     plot_ly(source ="volcSource") %>% add_trace( # Over expressed genes
-      data = local_dataframe[local_dataframe$group == "Sur-exprimé",], # Rows chosen
+      data = local_dataframe[local_dataframe$group == "Over-expressed",], # Rows chosen
       x = ~log2FC, y = ~negLogPadj, # Columns chosen
       type = "scatter", mode = "markers", # Type of plot
-      marker = list(color = group_colors["Sur-exprimé"]), # Color of points
-      name = "Sur-exprimé", # Name of variable in legend
+      marker = list(color = group_colors["Over-expressed"]), # Color of points
+      name = "Over-expressed", # Name of variable in legend
       text = ~paste0( # Text to show on hover
         "<b>Gene:</b> ", GeneName, "<br>",
         "log2FC: ", round(log2FC, 2), "<br>",
@@ -144,11 +145,11 @@ server <- function(input, output) {
       ),
       hoverinfo = "text"
     ) %>% add_trace( #Under expressed genes
-      data = local_dataframe[local_dataframe$group == "Sous-exprimé",],
+      data = local_dataframe[local_dataframe$group == "Under-expressed",],
       x = ~log2FC, y = ~negLogPadj,
       type = "scatter", mode = "markers",
-      marker = list(color = group_colors["Sous-exprimé"]),
-      name = "Sous-exprimé",
+      marker = list(color = group_colors["Under-expressed"]),
+      name = "Under-expressed",
       text = ~paste0(
         "<b>Gene:</b> ", GeneName, "<br>",
         "log2FC: ", round(log2FC, 2), "<br>",
@@ -156,16 +157,16 @@ server <- function(input, output) {
       ),
       hoverinfo = "text"
     ) %>% add_trace( # Genes under thresholds
-      data = local_dataframe[local_dataframe$group == "Non significatif",],
+      data = local_dataframe[local_dataframe$group == "Under thresholds",],
       x = ~log2FC, y = ~negLogPadj,
       type = "scatter", mode = "markers",
-      marker = list(color = group_colors["Non significatif"]),
-      name = "Non significatif",
+      marker = list(color = group_colors["Under thresholds"]),
+      name = "Under thresholds",
       text = ~paste0(
         "<b>Gene:</b> ", GeneName, "<br>",
         "log2FC: ", round(log2FC, 2), "<br>",
         "-10log(Padj): ", round(-10*log(padj), 2), "<br>",
-        "<i>Ne dépasse pas les seuils</i>"),
+        "<i>Under thresholds</i>"),
       hoverinfo = "text"
     ) %>%
       ### Change layout and add threshold lines ####
@@ -197,71 +198,107 @@ server <- function(input, output) {
       )
     )
   })
+  # Send volcano plot to UI
+  output$volcanoPlot = renderPlotly({volcanoPlot()})
   
   # Plot-Table interactions ####
-  ## Table to plot interaction ####
-  observeEvent(input$user_table_rows_selected, {
-    volcanoProxy = plotlyProxy("volcanoPlot")
-    # Unselect everything
-    plotlyProxyInvoke(volcanoProxy, "restyle", list(opacity = 1), list(0))
+  default_colors = reactive({
+    req(user_formatted())
     
-    if (!is.null(input$user_table_rows_selected) &&
-        length(input$user_table_rows_selected) > 0) { 
-      # When row is selected in the table, update the plot
-      plotlyProxyInvoke(
-        volcanoProxy,
-        "restyle",
-        list(marker = list(color = ifelse(
-          seq_len(nrow(user_data())) %in% input$user_table_rows_selected,
-          "red",
-          "blue"
-        ))),
-        list(0)
-      )
-    }
+    group_colors = c("Over-expressed" = "red", "Under-expressed" = "black", "Under thresholds" = "gray")
+    colors = group_colors[user_formatted()$groups]
+    colors
   })
-  
   
   ## Plot to table interaction ####
   observe({
     # Retrieve selected points on plot
-    selected_points <- event_data("plotly_selected", source = "volcSource")
+    selected_points = event_data("plotly_selected", source = "volcSource")
     # Reset if nothing is selected
     if (is.null(selected_points)) {
-      table_proxy <- dataTableProxy("user_table")
+      table_proxy = dataTableProxy("user_table")
       selectRows(table_proxy, NULL)
       return()
     }
     # Find corresponging indices in the table
-    selected_rows <- selected_points$pointNumber + 1  # +1 because R is 1-indexed
-    table_proxy <- dataTableProxy("user_table")
+    selected_rows = selected_points$pointNumber + 1  # +1 because R is 1-indexed
+    table_proxy = dataTableProxy("user_table")
     selectRows(table_proxy, selected_rows) # Select rows
   })
   
+  # UI DataTables ####
+  # User Table formatted ####
+  output$user_table = renderDT(datatable(user_formatted(),filter = "top", selection = "multiple"))
+  
   ## Reactive table of selected values ####
-  output$user_selected_table <- renderDT({
+  output$user_selected_table = renderDT({
     req(input$user_table_rows_selected)  # Need selected rows
     isolate({
       if (!is.null(input$user_table_rows_selected) && length(input$user_table_rows_selected) > 0) {
-        selected_rows <- user_data()[input$user_table_rows_selected, ] # Save selected rows
+        selected_rows = user_formatted()[input$user_table_rows_selected, ] # Save selected rows
       } else { # Empty data if nothing selected
-        selected_rows <- data.frame(GeneName = character(0), log2FC = numeric(0), padj = numeric(0))
+        selected_rows = data.frame(GeneName = character(0), log2FC = numeric(0), padj = numeric(0))
       }
-      datatable(selected_rows, options = list(pageLength = 5)) # Return the datatable
+      datatable(selected_rows, selection = "none", options = list(pageLength = 10), filter = "top") # Return the datatable
     })
   })
   
-  ## Reactive table of significant values ####
-  ## Reactive table of selected values ####
-  output$user_significant_table <- renderDT({
-    req(user_data())  # Need data
+  ### Reactive table of over/under expressed genes ####
+  output$over_expressed_table = renderDT({
+    req(user_formatted()) # require formatted data
+    local_dataframe = user_formatted()
     
-    ### Prepare dataframe ####
-    local_dataframe = user_data() # Load as df
-    local_dataframe$padj <- as.numeric(as.character(local_dataframe$padj)) # Force numeric interpretation
-    local_dataframe$log2FC <- as.numeric(as.character(local_dataframe$log2FC)) # Force numeric interpretation
-    local_dataframe$negLogPadj = -10*log(local_dataframe$padj) # Precompute negative log of padj
+    over_expressed = user_data()[local_dataframe$negLogPadj > input$slider_padj & local_dataframe$log2FC > input$slider_log2FC, ]
+    datatable(over_expressed, options = list(pageLength = 10), selection = "none", filter = "none")
+  })
+  
+  output$under_expressed_table = renderDT({ # Same on under-expressed genes
+    req(user_formatted()) # require formatted data
+    local_dataframe = user_formatted()
     
+    under_expressed = user_data()[local_dataframe$negLogPadj > input$slider_padj & local_dataframe$log2FC < -input$slider_log2FC, ]
+    datatable(under_expressed, options = list(pageLength = 10), selection = "none", filter = "none")
+  })
+  
+  ## Download buttons events for each table ####
+  # Selected genes
+  output$downloadSelected = downloadHandler(filename = "selected_genes.csv", 
+                                            content =  function(file) { # select the proper table to write
+                                              req(input$user_table_rows_selected)
+                                              selected_rows = user_formatted()[input$user_table_rows_selected, ]
+                                              write.csv(selected_rows, file, row.names = FALSE)
+                                            },
+                                            contentType = "text/csv")
+  # Over-Expressed genes
+  output$downloadOver = downloadHandler(filename = "over_expressed_genes.csv",
+                                        content = function(file) {
+                                          req(user_formatted())
+                                          selected_rows = user_formatted()[input$user_table_rows_selected, ]
+                                          write.csv(user_formatted()[user_formatted()$groups=="Over-expressed",],
+                                                    file, row.names = FALSE)
+                                        },
+                                        contentType = "text/csv")
+  # Under-Expressed genes
+  output$downloadUnder = downloadHandler(filename = "under_expressed_genes.csv",
+                                         content = function(file) {
+                                           req(user_formatted())
+                                           selected_rows = user_formatted()[input$user_table_rows_selected, ]
+                                           write.csv(user_formatted()[user_formatted()$groups=="Under-expressed",],
+                                                     file, row.names = FALSE)
+                                         },
+                                         contentType = "text/csv")
+
+  
+  # UI plot ####
+  ## Reset selection ####
+  observeEvent(input$reset_selection, {
+    # Reset selction in table
+    table_proxy = dataTableProxy("user_table")
+    selectRows(table_proxy, NULL)
+    
+    # Reset colors in plots
+    volcanoProxy = plotlyProxy("volcanoPlot", session)
+    plotlyProxyInvoke(volcanoProxy, "restyle", list(list(selectedpoints = NULL)))
+    plotlyProxyInvoke(volcanoProxy, "restyle", list(list("marker.opacity" = 1)))
   })
 }
-user_data[user_data$padj<1e-30 & user_data$log2FC< -2,]
